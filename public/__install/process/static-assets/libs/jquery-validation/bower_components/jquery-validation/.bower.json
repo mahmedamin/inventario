@@ -1,0 +1,13 @@
+{
+  "name": "jquery-validation",
+  "_cacheHeaders": {
+    "ETag": "W/\"e07b97a18cfe14e06a898cdd6a57fe09\"",
+    "Content-Type": "text/html; charset=utf-8"
+  },
+  "_release": "e-tag:W/\"e07b97a",
+  "main": "index",
+  "_source": "https://github.com/jzaefferer/jquery-validation",
+  "_target": "*",
+  "_originalSource": "https://github.com/jzaefferer/jquery-validation",
+  "_direct": true
+}
