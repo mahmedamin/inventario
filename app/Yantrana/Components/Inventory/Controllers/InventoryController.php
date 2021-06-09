@@ -204,6 +204,29 @@ class InventoryController extends BaseController
      */
     public function export(Request $request, $type)
     {
-        dd($type,$request->all());
+        switch ($type) {
+            case 'csv':
+                switch ($request->area_type) {
+                    case 'page':
+                        $processReaction = $this->inventoryEngine->prepareList()['data'];
+                        if (empty($processReaction['invetoryData']))
+                            return 'Data not available.';
+                        foreach ($processReaction['invetoryData'] as $product) {
+                            foreach ($product['combinationData'] as $location => $combinationData) {
+                                $totalStock = $combinationData['totalStock'];
+                                unset($combinationData['totalStock']);
+                                foreach ($combinationData['totalStock'] as $combination){
+                                    $productCombinations='';
+                                    foreach ($combination['combinations'] as $combinationOptions){
+                                        foreach ($combinationOptions as $combinationOption){
+                                            //
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                }
+        }
     }
 }
