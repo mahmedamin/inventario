@@ -198,33 +198,67 @@ class InventoryController extends BaseController
         return __processResponse($processReaction, [], [], true);
     }
 
+    private function getStockStockForExport($clauses = [])
+    {
+        $sub = StockTransactionModel::withoutGlobalScopes()->select('locations__id', 'stock_transactions.product_combinations__id',
+            DB::raw("SUM(IF((type = 1), quantity, 0)) as stock_out"),
+            DB::raw("SUM(IF((type = 2), quantity, 0)) as stock_in"))
+            ->groupBy("product_combinations__id", "locations__id")
+            ->orderBy("locations__id");
+
+        $data = DB::table(DB::raw("({$sub->toSql()}) as st"))
+            ->mergeBindings($sub->getQuery())
+            ->select(DB::raw("st.*,
+               (stock_in - stock_out)                      as available_stock,
+               l.name                                      as location_name,
+               p.name                                      as product_name,
+               pc.product_id                                  as sku,
+               pc.title                                    as combination_name,
+               #group_concat(pco.product_option_values__id) as combination_option_value_ids,
+               group_concat(pov.name)                      as combination_option_values,
+               group_concat(pol.name)                      as combination_option_value_labels"
+            ))
+            ->join("locations as l", "st.locations__id", "=", "l._id")
+            ->join("product_combinations as pc", "st.product_combinations__id", "=", "pc._id")
+            ->join("products as p", "pc.products__id", "=", "p._id")
+            ->join("product_combinations_options as pco", "st.product_combinations__id", "=", "pco.product_combinations__id")
+            ->leftJoin("product_option_values as pov", "pco.product_option_values__id", "=", "pov._id")
+            ->leftJoin("product_option_labels as pol", "pov.product_option_labels__id", "=", "pol._id")
+            ->groupBy('locations__id', 'st.product_combinations__id');
+
+        foreach ($clauses as $clause) $data->where($clause);
+
+        return $data->get()->map(function ($stock) {
+            $combinationOptions = [];
+            $combinationOptionValues = explode(',', $stock->combination_option_values);
+            $combinationOptionValueLabels = explode(',', $stock->combination_option_value_labels);
+            foreach ($combinationOptionValues as $i => $value) {
+                $label = $combinationOptionValueLabels[$i];
+                $combinationOptions[] = "{$label}: $value";
+            }
+            $stock->combination = $stock->combination_name . ' (' . implode(' - ', $combinationOptions) . ')';
+            return $stock;
+            return collect($stock)->only(['product_name','location_name','sku','combination','']);
+        });
+    }
+
     /**
      * Export to PDV, CSV, etc
      * @param $type
      */
     public function export(Request $request, $type)
     {
+        $time = time();
         switch ($type) {
             case 'csv':
                 switch ($request->area_type) {
                     case 'page':
-                        $processReaction = $this->inventoryEngine->prepareList()['data'];
-                        if (empty($processReaction['invetoryData']))
-                            return 'Data not available.';
-                        foreach ($processReaction['invetoryData'] as $product) {
-                            foreach ($product['combinationData'] as $location => $combinationData) {
-                                $totalStock = $combinationData['totalStock'];
-                                unset($combinationData['totalStock']);
-                                foreach ($combinationData['totalStock'] as $combination){
-                                    $productCombinations='';
-                                    foreach ($combination['combinations'] as $combinationOptions){
-                                        foreach ($combinationOptions as $combinationOption){
-                                            //
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        dd($this->getStockStockForExport()->toArray());
+                        return $this->getStockStockForExport()->downloadExcel(
+                            "stock-$time.csv",
+                            $writerType = null,
+                            $headings = false
+                        );
 
                 }
         }
