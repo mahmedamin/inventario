@@ -209,14 +209,16 @@ class InventoryController extends BaseController
         $data = DB::table(DB::raw("({$sub->toSql()}) as st"))
             ->mergeBindings($sub->getQuery())
             ->select(DB::raw("st.*,
-               (stock_in - stock_out)                      as available_stock,
-               l.name                                      as location_name,
-               p.name                                      as product_name,
-               pc.product_id                                  as sku,
-               pc.title                                    as combination_name,
+               (stock_in - stock_out)                       as available_stock,
+               l.name                                       as location_name,
+               p.name                                       as product_name,
+               pc.price                                     as purchase_price,
+               pc.sale_price                                as sale_price,
+               pc.product_id                                as sku,
+               pc.title                                     as combination_name,
                #group_concat(pco.product_option_values__id) as combination_option_value_ids,
-               group_concat(pov.name)                      as combination_option_values,
-               group_concat(pol.name)                      as combination_option_value_labels"
+               group_concat(pov.name)                       as combination_option_values,
+               group_concat(pol.name)                       as combination_option_value_labels"
             ))
             ->join("locations as l", "st.locations__id", "=", "l._id")
             ->join("product_combinations as pc", "st.product_combinations__id", "=", "pc._id")
@@ -237,8 +239,7 @@ class InventoryController extends BaseController
                 $combinationOptions[] = "{$label}: $value";
             }
             $stock->combination = $stock->combination_name . ' (' . implode(' - ', $combinationOptions) . ')';
-            return $stock;
-            return collect($stock)->only(['product_name','location_name','sku','combination','']);
+            return collect($stock)->only(['product_name', 'location_name', 'sku', 'combination', 'purchase_price', 'sale_price', 'available_stock']);
         });
     }
 
