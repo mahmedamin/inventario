@@ -16,6 +16,7 @@ use App\Yantrana\Components\User\Models\UserRole;
 use App\Yantrana\Support\CommonPostRequest as Request;
 use App\Yantrana\Components\Inventory\Requests\UpdateInventoryRequest;
 use App\Yantrana\Components\Inventory\InventoryEngine;
+use Barryvdh\DomPDF\Facade as PDF;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -226,9 +227,9 @@ class InventoryController extends BaseController
             ->join("product_combinations_options as pco", "st.product_combinations__id", "=", "pco.product_combinations__id")
             ->leftJoin("product_option_values as pov", "pco.product_option_values__id", "=", "pov._id")
             ->leftJoin("product_option_labels as pol", "pov.product_option_labels__id", "=", "pol._id")
-            ->groupBy('locations__id', 'st.product_combinations__id');
+            ->groupBy('locations__id', 'st.product_combinations__id')->orderBy('p._id', 'desc');
 
-        foreach ($clauses as $clause) $data->where($clause);
+        foreach ($clauses as $key => $value) $data->where($key, $value);
 
         return $data->get()->map(function ($stock) {
             $combinationOptions = [];
@@ -239,13 +240,22 @@ class InventoryController extends BaseController
                 $combinationOptions[] = "{$label}: $value";
             }
             $stock->combination = $stock->combination_name . ' (' . implode(' - ', $combinationOptions) . ')';
-            return collect($stock)->only(['product_name', 'location_name', 'sku', 'combination', 'purchase_price', 'sale_price', 'available_stock']);
+            return (object)[
+                'product_name' => $stock->product_name,
+                'location_name' => $stock->location_name,
+                'sku' => $stock->sku,
+                'combination' => $stock->combination,
+                'purchase_price' => $stock->purchase_price,
+                'sale_price' => $stock->sale_price,
+                'available_stock' => $stock->available_stock
+            ];
         });
     }
 
     /**
      * Export to PDV, CSV, etc
-     * @param $type
+     * @param Request $request
+     * @return string
      */
     public function export(Request $request, $type)
     {
@@ -254,14 +264,86 @@ class InventoryController extends BaseController
             case 'csv':
                 switch ($request->area_type) {
                     case 'page':
-                        dd($this->getStockStockForExport()->toArray());
-                        return $this->getStockStockForExport()->downloadExcel(
-                            "stock-$time.csv",
-                            $writerType = null,
-                            $headings = false
-                        );
-
+                        return $this->getStockStockForExport()
+                            ->prepend([
+                                'Product Name',
+                                'Location Name',
+                                'Sku',
+                                'Combination',
+                                'Purchase Price',
+                                'Sale Price',
+                                'Available Stock'
+                            ])->downloadExcel("stock-{$time}.csv");
+                    case 'product':
+                        return $this->getStockStockForExport([
+                            'p._id' => $request->key
+                        ])->prepend([
+                            'Product name',
+                            'Location name',
+                            'Sku',
+                            'Combination',
+                            'Purchase price',
+                            'Sale price',
+                            'Available stock'
+                        ])->downloadExcel("stock-{$time}.csv");
+                    case 'combination':
+                        $keys = explode(',', $request->key);
+                        $stock = $this->getStockStockForExport([
+                            'st.product_combinations__id' => $keys[0],
+                            'st.locations__id' => $keys[1]
+                        ]);
+                        $stock = isset($stock[0]) ? $stock[0] : null;
+                        if ($stock) {
+                            $collection = [];
+                            foreach ($stock as $key => $value)
+                                $collection[] = [
+                                    ucfirst(str_replace('_', ' ', $key)),
+                                    $value
+                                ];
+                            return collect($collection)->downloadExcel("stock-{$time}.csv");
+                        }
+                        return 'Combination not found';
                 }
+                break;
+            case 'pdf':
+                switch ($request->area_type) {
+                    case 'page':
+                        $inventory = $this->getStockStockForExport();
+                        break;
+                    case 'product':
+                        $inventory = $this->getStockStockForExport(['p._id' => $request->key]);
+                        break;
+                    case 'combination':
+                        $keys = explode(',', $request->key);
+                        $inventory = $this->getStockStockForExport([
+                            'st.product_combinations__id' => $keys[0],
+                            'st.locations__id' => $keys[1]
+                        ]);
+                        break;
+                }
+
+                $inventory = $inventory->groupBy('product_name')
+                    ->map(function ($stock) {
+                        $totalProductQty = 0;
+                        foreach ($stock as $stockData)
+                            $totalProductQty += $stockData->available_stock;
+                        return (object)[
+                            'totalQty' => $totalProductQty,
+                            'productInventory' => $stock->groupBy('location_name')
+                                ->map(function ($inventory) {
+                                    $totalQty = 0;
+                                    foreach ($inventory as $inventoryData)
+                                        $totalQty += $inventoryData->available_stock;
+                                    return (object)[
+                                        'totalQty' => $totalQty,
+                                        'locationInventory' => $inventory
+                                    ];
+                                })
+                        ];
+                    });
+
+                $pdf = PDF::loadView('inventory.pdf-export', compact('inventory'));
+                return $pdf->download("stock-{$time}.pdf");
         }
     }
 }
